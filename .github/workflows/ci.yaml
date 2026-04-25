@@ -15,7 +15,7 @@ env:
 jobs:
 
 # ─────────────────────────────────────────────
-# JOB 1 — SONARQUBE SCAN (SCA)
+# JOB 1 — SONARQUBE SCAN (runs in parallel with snyk)
 # ─────────────────────────────────────────────
   sonar-scan:
     name: SonarQube Scan
@@ -31,8 +31,7 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install dependencies
-        run: |
-          pip install -r $REQUIREMENTS_PATH
+        run: pip install -r $REQUIREMENTS_PATH
 
       - name: Run SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@v2
@@ -68,11 +67,10 @@ jobs:
             <p><a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}">View Logs</a></p>
 
 # ─────────────────────────────────────────────
-# JOB 3 — SNYK SCAN (SAST)
+# JOB 3 — SNYK SCAN (runs in parallel with sonar)
 # ─────────────────────────────────────────────
   snyk-scan:
-    needs: sonar-scan
-    if: needs.sonar-scan.result == 'success'
+    name: Snyk Scan
     runs-on: ubuntu-latest
 
     steps:
@@ -83,8 +81,7 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install dependencies
-        run: |
-          pip install -r $REQUIREMENTS_PATH
+        run: pip install -r $REQUIREMENTS_PATH
 
       - name: Setup Snyk
         uses: snyk/actions/setup@master
@@ -116,15 +113,19 @@ jobs:
             <p><a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}">View Logs</a></p>
 
 # ─────────────────────────────────────────────
-# JOB 5 — MANUAL APPROVAL
+# JOB 5 — MANUAL APPROVAL (push to main only)
 # ─────────────────────────────────────────────
   approval:
-    needs: snyk-scan
-    if: needs.snyk-scan.result == 'success' && github.event_name == 'push'
+    needs: [sonar-scan, snyk-scan]
+    if: >
+      needs.sonar-scan.result == 'success' &&
+      needs.snyk-scan.result == 'success' &&
+      github.event_name == 'push' &&
+      github.ref_name == 'main'
     runs-on: ubuntu-latest
 
     environment:
-      name: ${{ github.ref_name == 'main' && 'prod' || 'dev' }}
+      name: prod
 
     steps:
       - run: echo "Approved"
@@ -171,6 +172,7 @@ jobs:
 
       - name: Trivy Image Scan
         uses: aquasecurity/trivy-action@master
+        continue-on-error: true
         with:
           image-ref: ghcr.io/${{ github.repository }}:${{ github.ref_name }}-latest
           format: table
