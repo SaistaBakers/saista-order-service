@@ -15,7 +15,7 @@ env:
 jobs:
 
 # ─────────────────────────────────────────────
-# JOB 1 — SONARQUBE SCAN (runs in parallel with snyk)
+# JOB 1 — SONARQUBE SCAN (SCA)
 # ─────────────────────────────────────────────
   sonar-scan:
     name: SonarQube Scan
@@ -31,7 +31,8 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install dependencies
-        run: pip install -r $REQUIREMENTS_PATH
+        run: |
+          pip install -r $REQUIREMENTS_PATH
 
       - name: Run SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@v2
@@ -67,10 +68,11 @@ jobs:
             <p><a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}">View Logs</a></p>
 
 # ─────────────────────────────────────────────
-# JOB 3 — SNYK SCAN (runs in parallel with sonar)
+# JOB 3 — SNYK SCAN (SAST)
 # ─────────────────────────────────────────────
   snyk-scan:
-    name: Snyk Scan
+    needs: sonar-scan
+    if: needs.sonar-scan.result == 'success'
     runs-on: ubuntu-latest
 
     steps:
@@ -81,7 +83,8 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install dependencies
-        run: pip install -r $REQUIREMENTS_PATH
+        run: |
+          pip install -r $REQUIREMENTS_PATH
 
       - name: Setup Snyk
         uses: snyk/actions/setup@master
@@ -113,19 +116,15 @@ jobs:
             <p><a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}">View Logs</a></p>
 
 # ─────────────────────────────────────────────
-# JOB 5 — MANUAL APPROVAL (push to main only)
+# JOB 5 — MANUAL APPROVAL
 # ─────────────────────────────────────────────
   approval:
-    needs: [sonar-scan, snyk-scan]
-    if: >
-      needs.sonar-scan.result == 'success' &&
-      needs.snyk-scan.result == 'success' &&
-      github.event_name == 'push' &&
-      github.ref_name == 'main'
+    needs: snyk-scan
+    if: needs.snyk-scan.result == 'success' && github.event_name == 'push'
     runs-on: ubuntu-latest
 
     environment:
-      name: prod
+      name: ${{ github.ref_name == 'main' && 'prod' || 'dev' }}
 
     steps:
       - run: echo "Approved"
